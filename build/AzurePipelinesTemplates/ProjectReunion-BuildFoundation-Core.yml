@@ -1,0 +1,65 @@
+# Core template for ProjectReunion BuildFoundation
+# This file contains the shared logic used by both standard and version-only builds 
+# to reduce code duplication and improve maintainability.
+
+parameters:
+  # Controls whether to run API scan during the build
+  - name: runApiScan
+    type: boolean
+    default: true
+  # Controls whether to run PREFast during the build
+  - name: runPREFast
+    type: boolean
+    default: true
+
+name: $(version)
+
+trigger: none
+
+variables:
+- template: ../WindowsAppSDK-Versions.yml
+- template: ../WindowsAppSDK-CommonVariables.yml
+- template: ../WindowsAppSDK-Foundation-TestConfig.yml@WindowsAppSDKConfig
+- template: ../WindowsAppSDK-SetSourceBranchVariableForConfigRepo.yml@WindowsAppSDKConfig
+
+resources:
+  repositories:
+    - repository: WindowsAppSDKConfig
+      type: git
+      name: ProjectReunion/WindowsAppSDKConfig
+      ref: refs/heads/main
+    - repository: WindowsAppSDKConfigSourceBranch
+      type: git
+      name: ProjectReunion/WindowsAppSDKConfig
+      ref: ${{ variables['mySourceBranch'] }}
+
+stages:
+- template: WindowsAppSDK-BuildInstaller-Stage.yml@self
+
+- template: WindowsAppSDK-BuildVSIX-Stage.yml@self
+
+- template: WindowsAppSDK-Build-Stage.yml@self
+  parameters:
+    SignOutput: false
+    IsOneBranch: false
+    runApiScan: ${{ parameters.runApiScan }}
+    runPREFast: false
+
+- ${{ if eq(parameters.runPREFast, 'true') }}:
+  - template: WindowsAppSDK-Build-Stage.yml@self
+    parameters:
+      SignOutput: false
+      IsOneBranch: false
+      runApiScan: false
+      runPREFast: true
+
+- template: WindowsAppSDK-Test-Stage.yml@self
+  parameters:
+    testMatrix: ${{ variables.PipelineTests }}
+
+- template: WindowsAppSDK-PackTransportPackage-Stage.yml@self
+  parameters:
+    SignOutput: false
+    PublishPackage: false
+    IsOneBranch: false
+    BuildMockWindowsAppSDK: false

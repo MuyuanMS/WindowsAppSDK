@@ -14,9 +14,9 @@
 #                                                                                                                                   #
 #####################################################################################################################################
 
-# Import the core template file with default parameters for standard PR builds
-# This keeps existing behavior (static analysis enabled by default)
+# Import the core template file with parameters set for version-only PR builds
+# Static analysis is disabled for these builds to improve efficiency
 extends:
   template: AzurePipelinesTemplates/WindowsAppSDK-Foundation-PR-Core.yml@self
   parameters:
-    runStaticAnalysis: true
+    runStaticAnalysis: false
