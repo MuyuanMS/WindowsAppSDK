@@ -1,0 +1,111 @@
+#####################################################################################################################################
+#                                               OneBranch Pipelines - Foundation PR Core                                           #
+#####################################################################################################################################
+#                                                                                                                                   #
+# This is a core template file for PR validation builds. It contains the shared logic used by both standard                         #
+# and version-only PR builds to reduce code duplication and improve maintainability.                                                #
+#                                                                                                                                   #
+#####################################################################################################################################
+
+parameters:
+  # Controls whether to run static analysis during the build
+  - name: runStaticAnalysis
+    type: boolean
+    default: true
+
+name: $(version)
+
+# https://aka.ms/obpipelines/triggers
+trigger: none
+
+variables:
+- template: ../WindowsAppSDK-Versions.yml
+- template: ../WindowsAppSDK-CommonVariables.yml
+- template: ../WindowsAppSDK-Foundation-TestConfig.yml@WindowsAppSDKConfig
+- template: ../WindowsAppSDK-SetSourceBranchVariableForConfigRepo.yml@WindowsAppSDKConfig
+
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: OneBranch.Pipelines/GovernedTemplates
+      ref: refs/heads/main
+    - repository: WindowsAppSDKConfig
+      type: git
+      name: ProjectReunion/WindowsAppSDKConfig
+      ref: refs/heads/main
+    - repository: WindowsAppSDKConfigSourceBranch
+      type: git
+      name: ProjectReunion/WindowsAppSDKConfig
+      ref: ${{ variables['mySourceBranch'] }}
+
+extends:
+  template: v2/Microsoft.NonOfficial.yml@templates # https://aka.ms/obpipelines/templates
+  parameters:
+    featureFlags:
+      EnableCDPxPAT: false      
+      WindowsHostVersion:
+        Network: R1
+
+    platform:
+      name: 'windows_undocked' # windows undocked
+
+    cloudvault: # Please refer the wiki for more information: https://aka.ms/obpipelines/cloudvault
+      enabled: false
+
+    globalSdl: # Refer the wiki for more options in this parameter: https://aka.ms/obpipelines/sdl
+      tsa:
+        enabled: $(TsaEnabled) # onebranch publish all sdl results to TSA. If TSA is disabled all SDL tools will forced into 'break' build mode.  Please provide TSAOptions.json.
+      isNativeCode: false #TODO turn back on when bug in CheckCFlags2.exe is fixed
+      suppression:
+        suppressionFile: $(Build.SourcesDirectory)\.gdn\OneBranch.gdnsuppress
+      psscriptanalyzer:
+        enable: true
+        break: true
+      binskim:
+        enabled: true
+        break: true
+        analyzeTargetGlob: +:f|**.exe;+:f|**.dll;-:f|**\packages\**\*.dll;-:f|**\packages\**\*.exe
+      prefast:
+        ${{ if eq(parameters.runStaticAnalysis, 'true') }}:
+          enabled: true
+        ${{ else }}:
+          enabled: false
+        break: true
+        # Use "severity: 'Warning'" to be more sensitive, break on Warnings+Errors.
+        # Use "severity: 'Note'" to be even more sensitive, break on Notes+Warnings+Errors.
+        # Use "severity: 'Default'" to get back to default, i.e., break on Errors. Can't get less sensitive than that.
+        severity: Default
+        # Use "exclusionsFile: <<FILE PATH>>" to apply a local exclusion file.
+      apiscan:
+        # We will enable APIScan on a per-job basis downstream as needed.
+        enabled: false
+        # TODO: Once we've cleared away all existing errors, consider setting this to true.
+        break: false
+
+    stages:
+    - template: WindowsAppSDK-Build-Stage.yml@self
+      parameters:
+        SignOutput: false
+        runApiScan: ${{ parameters.runStaticAnalysis }}
+        runPREFast: false
+    
+    - ${{ if eq(parameters.runStaticAnalysis, 'true') }}:
+      - template: WindowsAppSDK-Build-Stage.yml@self
+        parameters:
+          SignOutput: false
+          runApiScan: false
+          runPREFast: true
+
+    - template: WindowsAppSDK-PackTransportPackage-Stage.yml@self
+      parameters:
+        SignOutput: false
+        PublishPackage: false
+        
+    - template: WindowsAppSDK-StaticValidationTest-Stage.yml@self
+      parameters:
+        SignOutput: false
+
+    - template: WindowsAppSDK-Test-Stage.yml@self
+      parameters:
+        testMatrix: ${{ variables.PipelineTests }}
