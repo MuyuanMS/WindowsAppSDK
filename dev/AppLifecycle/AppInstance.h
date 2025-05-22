@@ -8,6 +8,9 @@
 #include "RedirectionRequest.h"
 #include "SharedProcessList.h"
 #include "RedirectionRequestQueue.h"
+#include <chrono>
+#include <set>
+#include <map>
 
 namespace winrt::Microsoft::Windows::AppLifecycle::implementation
 {
@@ -53,6 +56,8 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
         Microsoft::Windows::AppLifecycle::AppInstance FindForKey(std::wstring const& key);
         void EnqueueRedirectionRequestId(GUID id);
         GUID DequeueRedirectionRequestId();
+        bool IsRecentFileActivation(Microsoft::Windows::AppLifecycle::AppActivationArguments const& args);
+        void RecordFileActivation(Microsoft::Windows::AppLifecycle::AppActivationArguments const& args);
 
         // Named object prefixes used to scope.
         std::wstring m_moduleName;
@@ -83,6 +88,17 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
 
         SharedProcessList m_instances;
         RedirectionRequestQueue m_redirectionArgs;
+        
+        // Tracking structure for recent file activations to prevent duplicates
+        // This is used to prevent multiple activations when a user selects multiple files
+        // in Explorer and opens them together, which can cause Windows to send multiple
+        // activation events, each containing the same set of files
+        struct RecentFileActivation
+        {
+            std::chrono::system_clock::time_point timestamp;
+            std::set<std::wstring> filePaths;
+        };
+        std::vector<RecentFileActivation> m_recentFileActivations;
     };
 }
 

@@ -181,6 +181,121 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
         m_redirectionArgs.Enqueue(id);
     }
 
+    // Checks if a file activation is a duplicate of a recent activation
+    // This is used to prevent duplicate activations when multiple files are opened at once
+    // When a user selects multiple files in Explorer and opens them, Windows may send multiple
+    // file activation events in quick succession, each containing the same set of files.
+    bool AppInstance::IsRecentFileActivation(Microsoft::Windows::AppLifecycle::AppActivationArguments const& args)
+    {
+        // Only check for duplicate file activations
+        if (args.Kind() != ExtendedActivationKind::File)
+        {
+            return false;
+        }
+
+        try
+        {
+            auto data = args.Data().try_as<winrt::Windows::ApplicationModel::Activation::IFileActivatedEventArgs>();
+            if (!data)
+            {
+                return false;
+            }
+
+            // Get file paths from the activation
+            std::set<std::wstring> newFilePaths;
+            auto files = data.Files();
+            for (uint32_t i = 0; i < files.Size(); i++)
+            {
+                newFilePaths.insert(files.GetAt(i).Path());
+            }
+
+            // If no files, not a duplicate
+            if (newFilePaths.empty())
+            {
+                return false;
+            }
+
+            auto now = std::chrono::system_clock::now();
+
+            // Remove old activation records (older than 1 second)
+            // We only want to detect duplicates that happen in quick succession,
+            // which is the typical case for multi-file selection in Explorer
+            auto releaseOnExit = m_dataMutex.acquire();
+            auto it = m_recentFileActivations.begin();
+            while (it != m_recentFileActivations.end())
+            {
+                if (now - it->timestamp > std::chrono::seconds(1))
+                {
+                    it = m_recentFileActivations.erase(it);
+                }
+                else
+                {
+                    ++it;
+                }
+            }
+
+            // Check if this set of files matches a recent activation
+            for (const auto& recent : m_recentFileActivations)
+            {
+                // If file sets are the same, this is a duplicate activation
+                if (recent.filePaths == newFilePaths)
+                {
+                    return true;
+                }
+            }
+        }
+        catch (...)
+        {
+            // If any exception occurs, assume it's not a duplicate
+            return false;
+        }
+
+        return false;
+    }
+
+    // Records a file activation to prevent future duplicates
+    void AppInstance::RecordFileActivation(Microsoft::Windows::AppLifecycle::AppActivationArguments const& args)
+    {
+        if (args.Kind() != ExtendedActivationKind::File)
+        {
+            return;
+        }
+
+        try
+        {
+            auto data = args.Data().try_as<winrt::Windows::ApplicationModel::Activation::IFileActivatedEventArgs>();
+            if (!data)
+            {
+                return;
+            }
+
+            // Get file paths from the activation
+            std::set<std::wstring> filePaths;
+            auto files = data.Files();
+            for (uint32_t i = 0; i < files.Size(); i++)
+            {
+                filePaths.insert(files.GetAt(i).Path());
+            }
+
+            // If no files, don't record
+            if (filePaths.empty())
+            {
+                return;
+            }
+
+            // Add to recent activations
+            auto releaseOnExit = m_dataMutex.acquire();
+            m_recentFileActivations.push_back({
+                std::chrono::system_clock::now(),
+                std::move(filePaths)
+            });
+        }
+        catch (...)
+        {
+            // Ignore errors in recording
+        }
+    }
+
     void AppInstance::ProcessRedirectionRequests()
     {
         m_innerActivated.ResetEvent();
@@ -196,6 +311,23 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
             RedirectionRequest request;
             request.Open(name);
             auto args = request.UnmarshalArguments();
+
+            // Skip this activation if it's a duplicate file activation that was recently processed
+            // This prevents multiple activations when a user selects multiple files in Explorer
+            // and opens them all at once, which can cause Windows to send multiple activation events
+            if (IsRecentFileActivation(args))
+            {
+                std::wstring eventName = name + c_activatedEventNameSuffix;
+                wil::unique_event cleanupEvent;
+                if (cleanupEvent.try_open(eventName.c_str()))
+                {
+                    cleanupEvent.SetEvent();
+                }
+                continue;
+            }
+
+            // Record this file activation to prevent duplicates
+            RecordFileActivation(args);
 
             // Notify the app that the redirection request is here.
             m_activatedEvent(*this, args);
