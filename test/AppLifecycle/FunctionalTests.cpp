@@ -367,5 +367,25 @@ namespace Test::AppLifecycle
             Execute(L"AppLifecycleTestApp.exe", L"/UnregisterProtocol", g_deploymentDir);
             WaitForEvent(event, m_failed);
         }
+
+        TEST_METHOD(FileTypeActivation_CaseInsensitivity)
+        {
+            // This test verifies that ComputeAppId is case-insensitive for file paths
+            // by checking that two paths that differ only by case produce the same AppId
+
+            // Get implementation namespace to access ComputeAppId
+            using namespace winrt::Microsoft::Windows::AppLifecycle::implementation;
+
+            // Test paths with different case
+            std::wstring path1 = L"C:\\Users\\user\\App\\app.exe";
+            std::wstring path2 = L"C:\\Users\\user\\App\\App.exe";
+            
+            // Verify that the AppIds calculated from the paths are the same
+            auto appId1 = ComputeAppId(path1);
+            auto appId2 = ComputeAppId(path2);
+            
+            // The AppIds should be identical regardless of the case
+            VERIFY_ARE_EQUAL(appId1, appId2);
+        }
     };
 }

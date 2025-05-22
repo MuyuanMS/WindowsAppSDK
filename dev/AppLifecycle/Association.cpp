@@ -26,6 +26,17 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
             seed = wil::GetModuleFileNameW<std::wstring>(nullptr);
         }
 
+        // Convert to lowercase if it appears to be a file path to ensure case insensitivity
+        if (!seed.empty() && 
+            (seed.find(L'\\') != std::wstring::npos || 
+             (seed.size() > 1 && seed[1] == L':')))
+        {
+            // Make a mutable copy of the string
+            std::wstring lowercaseSeed = seed;
+            CharLowerW(&lowercaseSeed[0]);
+            seed = lowercaseSeed;
+        }
+
         std::hash<std::wstring> hasher;
         auto hash = hasher(seed);
         uint64_t hash64 = static_cast<uint64_t>(hash);
