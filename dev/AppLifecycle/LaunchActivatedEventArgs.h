@@ -4,6 +4,7 @@
 
 #include "ActivatedEventArgsBase.h"
 #include "ValueMarshaling.h"
+#include "../Common/UriHelpers.h"
 
 namespace winrt::Microsoft::Windows::AppLifecycle::implementation
 {
@@ -22,9 +23,10 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
 
         static winrt::Windows::Foundation::IInspectable Deserialize(winrt::Windows::Foundation::Uri const& uri)
         {
-            auto query = uri.QueryParsed();
-            auto args = query.GetFirstValueByName(L"Arguments");
-            return make<LaunchActivatedEventArgs>(args);
+            // Use custom query parameter parser to handle Unicode characters
+            auto queryParams = ParseUriQueryParameters(uri);
+            auto args = GetQueryParamValueByName(queryParams, L"Arguments");
+            return make<LaunchActivatedEventArgs>(args.c_str());
         }
 
         // IInternalValueMarshalable

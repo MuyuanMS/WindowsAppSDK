@@ -4,6 +4,7 @@
 
 #include <winrt/Windows.Foundation.h>
 #include "ActivatedEventArgsBase.h"
+#include "../Common/UriHelpers.h"
 
 namespace winrt::Microsoft::Windows::AppLifecycle::implementation
 {
@@ -22,9 +23,10 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
 
         static winrt::Windows::Foundation::IInspectable Deserialize(winrt::Windows::Foundation::Uri const& uri)
         {
-            auto query = uri.QueryParsed();
-            auto taskId = query.GetFirstValueByName(L"TaskId");
-            return make<StartupActivatedEventArgs>(taskId);
+            // Use custom query parameter parser to handle Unicode characters
+            auto queryParams = ParseUriQueryParameters(uri);
+            auto taskId = GetQueryParamValueByName(queryParams, L"TaskId");
+            return make<StartupActivatedEventArgs>(taskId.c_str());
         }
 
         // IInternalValueMarshalable

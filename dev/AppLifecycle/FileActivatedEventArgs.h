@@ -3,6 +3,7 @@
 #pragma once
 
 #include "ActivatedEventArgsBase.h"
+#include "../Common/UriHelpers.h"
 
 namespace winrt::Microsoft::Windows::AppLifecycle::implementation
 {
@@ -47,14 +48,12 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
 
         static winrt::Windows::Foundation::IInspectable Deserialize(winrt::Windows::Foundation::Uri const& uri)
         {
-            auto query = uri.QueryParsed();
-            auto verb = query.GetFirstValueByName(L"Verb");
-            auto file = query.GetFirstValueByName(L"File");
+            // Use custom query parameter parser to handle Unicode characters
+            auto queryParams = ParseUriQueryParameters(uri);
+            auto verb = GetQueryParamValueByName(queryParams, L"Verb");
+            auto file = GetQueryParamValueByName(queryParams, L"File");
             
-            // Unescape the file path to handle Unicode characters
-            auto unescapedFile = winrt::Windows::Foundation::Uri::UnescapeComponent(file);
-            
-            return make<FileActivatedEventArgs>(verb, unescapedFile);
+            return make<FileActivatedEventArgs>(verb.c_str(), file.c_str());
         }
 
         // IInternalValueMarshalable

@@ -9,6 +9,7 @@
 #include "StartupActivatedEventArgs.h"
 #include "PushNotificationManager.h"
 #include "AppNotificationManager.h"
+#include "../Common/UriHelpers.h"
 
 namespace winrt::Microsoft::Windows::AppLifecycle::implementation
 {
@@ -37,32 +38,30 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
 
     inline std::tuple<ExtendedActivationKind, winrt::Windows::Foundation::IInspectable> DecodeActivatedEventArgs(winrt::Windows::Foundation::Uri const& uri)
     {
-        // Try to find ContractId in the query parameters
-        for (auto const& pair : uri.QueryParsed())
+        // Use custom query parameter parser to handle Unicode characters
+        auto queryParams = ParseUriQueryParameters(uri);
+        
+        // Check for ContractId in the query parameters
+        auto contractIdIt = queryParams.find(c_contractIdKeyName);
+        if (contractIdIt != queryParams.end())
         {
-            if (CompareStringOrdinal(pair.Name().c_str(), -1, c_contractIdKeyName, -1, TRUE) == CSTR_EQUAL)
+            auto contractId = contractIdIt->second;
+            
+            for (const auto& extension : c_extensionMap)
             {
-                auto contractId = pair.Value().c_str();
-                
-                // Unescape the contractId to handle potential Unicode characters
-                auto unescapedContractId = winrt::Windows::Foundation::Uri::UnescapeComponent(contractId);
-                
-                for (const auto& extension : c_extensionMap)
+                if (CompareStringOrdinal(contractId.c_str(), -1, extension.contractId, -1, TRUE) == CSTR_EQUAL)
                 {
-                    // Try comparing both the original and unescaped contractId
-                    if (CompareStringOrdinal(contractId, -1, extension.contractId, -1, TRUE) == CSTR_EQUAL ||
-                        CompareStringOrdinal(unescapedContractId.c_str(), -1, extension.contractId, -1, TRUE) == CSTR_EQUAL)
-                    {
-                        return { extension.kind, extension.factory(uri) };
-                    }
+                    return { extension.kind, extension.factory(uri) };
                 }
             }
         }
-
+        
         // If we have a File parameter in the query, this is likely a file activation
-        // This is a fallback for when the ContractId parsing might fail with Unicode characters
-        auto query = uri.QueryParsed();
-        if (query.GetFirstValueByName(L"File") != L"" && query.GetFirstValueByName(L"Verb") != L"")
+        // This is a fallback for when the ContractId parsing might fail
+        auto fileValue = GetQueryParamValueByName(queryParams, L"File");
+        auto verbValue = GetQueryParamValueByName(queryParams, L"Verb");
+        
+        if (!fileValue.empty() && !verbValue.empty())
         {
             for (const auto& extension : c_extensionMap)
             {
@@ -72,7 +71,7 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
                 }
             }
         }
-
+        
         return { ExtendedActivationKind::Protocol, nullptr };
     }
 }

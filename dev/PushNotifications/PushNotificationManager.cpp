@@ -24,6 +24,7 @@
 #include "PushNotificationReceivedEventArgs.h"
 #include <security.integritylevel.h>
 #include <NotificationPlatformActivation.h>
+#include "../Common/UriHelpers.h"
 
 using namespace std::literals;
 using namespace Microsoft::Windows::AppNotifications::Helpers;
@@ -195,16 +196,17 @@ namespace winrt::Microsoft::Windows::PushNotifications::implementation
         }
         else // The process was launched via ShellExecute and we need to parse the uri (Only unpackaged)
         {
-            for (auto const& pair : uri.QueryParsed())
+            // Use custom query parameter parser to handle Unicode characters
+            auto queryParams = winrt::Microsoft::Windows::AppLifecycle::implementation::ParseUriQueryParameters(uri);
+            auto payload = winrt::Microsoft::Windows::AppLifecycle::implementation::GetQueryParamValueByName(queryParams, L"payload");
+            
+            if (!payload.empty())
             {
-                if (pair.Name() == L"payload")
-                {
-                    // Convert escaped components to its normal content from the conversion done in the Long Running Process (see NotificationListener.cpp)
-                    auto payloadAsWstring{ winrt::Uri::UnescapeComponent(pair.Value()) };
-                    auto backgroundTask{ winrt::make_self<LongRunningProcessSourcedTaskInstance>(payloadAsWstring.c_str()) };
-                    eventArgs = winrt::make<PushNotificationReceivedEventArgs>(backgroundTask.as<IBackgroundTaskInstance>());
-                    m_backgroundTaskArgs = eventArgs;
-                }
+                // Convert escaped components to its normal content from the conversion done in the Long Running Process (see NotificationListener.cpp)
+                auto payloadAsWstring = winrt::Uri::UnescapeComponent(payload.c_str());
+                auto backgroundTask = winrt::make_self<LongRunningProcessSourcedTaskInstance>(payloadAsWstring.c_str());
+                eventArgs = winrt::make<PushNotificationReceivedEventArgs>(backgroundTask.as<IBackgroundTaskInstance>());
+                m_backgroundTaskArgs = eventArgs;
             }
 
             THROW_HR_IF_NULL_MSG(E_UNEXPECTED, eventArgs, "Could not serialize payload from command line Uri!");
