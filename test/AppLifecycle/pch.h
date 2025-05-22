@@ -32,7 +32,7 @@
 #include <winrt/Microsoft.Windows.AppLifecycle.h>
 
 // Include Association.h for implementation namespace access
-#include <Association.h>
+#include "../../dev/AppLifecycle/Association.h"
 
 #include <WindowsAppRuntime.Test.Bootstrap.h>
 namespace TP = ::Test::Packages;
