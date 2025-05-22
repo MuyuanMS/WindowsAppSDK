@@ -37,17 +37,38 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
 
     inline std::tuple<ExtendedActivationKind, winrt::Windows::Foundation::IInspectable> DecodeActivatedEventArgs(winrt::Windows::Foundation::Uri const& uri)
     {
+        // Try to find ContractId in the query parameters
         for (auto const& pair : uri.QueryParsed())
         {
             if (CompareStringOrdinal(pair.Name().c_str(), -1, c_contractIdKeyName, -1, TRUE) == CSTR_EQUAL)
             {
                 auto contractId = pair.Value().c_str();
+                
+                // Unescape the contractId to handle potential Unicode characters
+                auto unescapedContractId = winrt::Windows::Foundation::Uri::UnescapeComponent(contractId);
+                
                 for (const auto& extension : c_extensionMap)
                 {
-                    if (CompareStringOrdinal(contractId, -1, extension.contractId, -1, TRUE) == CSTR_EQUAL)
+                    // Try comparing both the original and unescaped contractId
+                    if (CompareStringOrdinal(contractId, -1, extension.contractId, -1, TRUE) == CSTR_EQUAL ||
+                        CompareStringOrdinal(unescapedContractId.c_str(), -1, extension.contractId, -1, TRUE) == CSTR_EQUAL)
                     {
                         return { extension.kind, extension.factory(uri) };
                     }
+                }
+            }
+        }
+
+        // If we have a File parameter in the query, this is likely a file activation
+        // This is a fallback for when the ContractId parsing might fail with Unicode characters
+        auto query = uri.QueryParsed();
+        if (query.GetFirstValueByName(L"File") != L"" && query.GetFirstValueByName(L"Verb") != L"")
+        {
+            for (const auto& extension : c_extensionMap)
+            {
+                if (CompareStringOrdinal(extension.contractId, -1, c_fileContractId, -1, TRUE) == CSTR_EQUAL)
+                {
+                    return { extension.kind, extension.factory(uri) };
                 }
             }
         }
