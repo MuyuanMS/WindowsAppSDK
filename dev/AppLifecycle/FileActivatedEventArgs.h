@@ -50,7 +50,11 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
             auto query = uri.QueryParsed();
             auto verb = query.GetFirstValueByName(L"Verb");
             auto file = query.GetFirstValueByName(L"File");
-            return make<FileActivatedEventArgs>(verb, file);
+            
+            // Unescape the file path to handle Unicode characters
+            auto unescapedFile = winrt::Windows::Foundation::Uri::UnescapeComponent(file);
+            
+            return make<FileActivatedEventArgs>(verb, unescapedFile);
         }
 
         // IInternalValueMarshalable
