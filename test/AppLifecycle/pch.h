@@ -31,5 +31,8 @@
 #include <winrt/Windows.System.h>
 #include <winrt/Microsoft.Windows.AppLifecycle.h>
 
+// Include Association.h for implementation namespace access
+#include <Association.h>
+
 #include <WindowsAppRuntime.Test.Bootstrap.h>
 namespace TP = ::Test::Packages;
