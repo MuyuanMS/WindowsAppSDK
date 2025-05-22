@@ -181,6 +181,10 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
         m_redirectionArgs.Enqueue(id);
     }
 
+    // Checks if a file activation is a duplicate of a recent activation
+    // This is used to prevent duplicate activations when multiple files are opened at once
+    // When a user selects multiple files in Explorer and opens them, Windows may send multiple
+    // file activation events in quick succession, each containing the same set of files.
     bool AppInstance::IsRecentFileActivation(Microsoft::Windows::AppLifecycle::AppActivationArguments const& args)
     {
         // Only check for duplicate file activations
@@ -214,6 +218,8 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
             auto now = std::chrono::system_clock::now();
 
             // Remove old activation records (older than 1 second)
+            // We only want to detect duplicates that happen in quick succession,
+            // which is the typical case for multi-file selection in Explorer
             auto releaseOnExit = m_dataMutex.acquire();
             auto it = m_recentFileActivations.begin();
             while (it != m_recentFileActivations.end())
@@ -247,6 +253,7 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
         return false;
     }
 
+    // Records a file activation to prevent future duplicates
     void AppInstance::RecordFileActivation(Microsoft::Windows::AppLifecycle::AppActivationArguments const& args)
     {
         if (args.Kind() != ExtendedActivationKind::File)
@@ -306,6 +313,8 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
             auto args = request.UnmarshalArguments();
 
             // Skip this activation if it's a duplicate file activation that was recently processed
+            // This prevents multiple activations when a user selects multiple files in Explorer
+            // and opens them all at once, which can cause Windows to send multiple activation events
             if (IsRecentFileActivation(args))
             {
                 std::wstring eventName = name + c_activatedEventNameSuffix;

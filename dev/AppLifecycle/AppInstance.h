@@ -90,6 +90,9 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
         RedirectionRequestQueue m_redirectionArgs;
         
         // Tracking structure for recent file activations to prevent duplicates
+        // This is used to prevent multiple activations when a user selects multiple files
+        // in Explorer and opens them together, which can cause Windows to send multiple
+        // activation events, each containing the same set of files
         struct RecentFileActivation
         {
             std::chrono::system_clock::time_point timestamp;
