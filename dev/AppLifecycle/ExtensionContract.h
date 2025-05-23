@@ -9,7 +9,6 @@
 #include "StartupActivatedEventArgs.h"
 #include "PushNotificationManager.h"
 #include "AppNotificationManager.h"
-#include "../Common/UriHelpers.h"
 
 namespace winrt::Microsoft::Windows::AppLifecycle::implementation
 {
@@ -38,40 +37,21 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
 
     inline std::tuple<ExtendedActivationKind, winrt::Windows::Foundation::IInspectable> DecodeActivatedEventArgs(winrt::Windows::Foundation::Uri const& uri)
     {
-        // Use custom query parameter parser to handle Unicode characters
-        auto queryParams = ParseUriQueryParameters(uri);
-        
-        // Check for ContractId in the query parameters
-        auto contractIdIt = queryParams.find(c_contractIdKeyName);
-        if (contractIdIt != queryParams.end())
+        for (auto const& pair : uri.QueryParsed())
         {
-            auto contractId = contractIdIt->second;
-            
-            for (const auto& extension : c_extensionMap)
+            if (CompareStringOrdinal(pair.Name().c_str(), -1, c_contractIdKeyName, -1, TRUE) == CSTR_EQUAL)
             {
-                if (CompareStringOrdinal(contractId.c_str(), -1, extension.contractId, -1, TRUE) == CSTR_EQUAL)
+                auto contractId = pair.Value().c_str();
+                for (const auto& extension : c_extensionMap)
                 {
-                    return { extension.kind, extension.factory(uri) };
+                    if (CompareStringOrdinal(contractId, -1, extension.contractId, -1, TRUE) == CSTR_EQUAL)
+                    {
+                        return { extension.kind, extension.factory(uri) };
+                    }
                 }
             }
         }
-        
-        // If we have a File parameter in the query, this is likely a file activation
-        // This is a fallback for when the ContractId parsing might fail
-        auto fileValue = GetQueryParamValueByName(queryParams, L"File");
-        auto verbValue = GetQueryParamValueByName(queryParams, L"Verb");
-        
-        if (!fileValue.empty() && !verbValue.empty())
-        {
-            for (const auto& extension : c_extensionMap)
-            {
-                if (CompareStringOrdinal(extension.contractId, -1, c_fileContractId, -1, TRUE) == CSTR_EQUAL)
-                {
-                    return { extension.kind, extension.factory(uri) };
-                }
-            }
-        }
-        
+
         return { ExtendedActivationKind::Protocol, nullptr };
     }
 }

@@ -3,7 +3,6 @@
 #pragma once
 
 #include "ActivatedEventArgsBase.h"
-#include "../Common/UriHelpers.h"
 
 namespace winrt::Microsoft::Windows::AppLifecycle::implementation
 {
@@ -48,12 +47,90 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
 
         static winrt::Windows::Foundation::IInspectable Deserialize(winrt::Windows::Foundation::Uri const& uri)
         {
-            // Use custom query parameter parser to handle Unicode characters
-            auto queryParams = ParseUriQueryParameters(uri);
-            auto verb = GetQueryParamValueByName(queryParams, L"Verb");
-            auto file = GetQueryParamValueByName(queryParams, L"File");
+            winrt::hstring verb;
+            winrt::hstring file;
             
-            return make<FileActivatedEventArgs>(verb.c_str(), file.c_str());
+            // Try to get parameters using standard QueryParsed
+            try
+            {
+                auto query = uri.QueryParsed();
+                verb = query.GetFirstValueByName(L"Verb");
+            }
+            catch (...)
+            {
+                // Fall back to manual extraction if QueryParsed fails
+                verb = ExtractQueryParameterValue(uri.Query(), L"Verb");
+            }
+            
+            // For File parameter, always use direct extraction since:
+            // 1. It can contain Unicode characters which QueryParsed() might not handle correctly
+            // 2. It can contain & characters in the filename
+            // 3. It's always the last parameter in the URI (by convention in the Serialize method)
+            file = ExtractFileParameterValue(uri.Query());
+            
+            if (!verb.empty() && !file.empty())
+            {
+                return make<FileActivatedEventArgs>(verb, file);
+            }
+            
+            throw winrt::hresult_invalid_argument(L"Missing required parameters");
+        }
+        
+        // Helper method to extract the File parameter value, assuming File is the last parameter
+        static winrt::hstring ExtractFileParameterValue(winrt::hstring const& query)
+        {
+            std::wstring queryStr = query.c_str();
+            const std::wstring fileParamPrefix = L"File=";
+            
+            // Find File parameter
+            auto filePos = queryStr.find(fileParamPrefix);
+            if (filePos != std::wstring::npos)
+            {
+                // Extract everything after "File=" to the end
+                auto fileValue = queryStr.substr(filePos + fileParamPrefix.length());
+                
+                // Unescape to handle Unicode characters
+                if (!fileValue.empty())
+                {
+                    return winrt::Windows::Foundation::Uri::UnescapeComponent(fileValue);
+                }
+            }
+            
+            return L"";
+        }
+        
+        // Helper method to extract a generic query parameter value 
+        static winrt::hstring ExtractQueryParameterValue(winrt::hstring const& query, std::wstring const& paramName)
+        {
+            std::wstring queryStr = query.c_str();
+            std::wstring paramPrefix = paramName + L"=";
+            
+            // Find parameter
+            auto paramPos = queryStr.find(paramPrefix);
+            if (paramPos != std::wstring::npos)
+            {
+                // Extract from start position to next & or end
+                auto startPos = paramPos + paramPrefix.length();
+                auto endPos = queryStr.find(L'&', startPos);
+                
+                std::wstring paramValue;
+                if (endPos != std::wstring::npos)
+                {
+                    paramValue = queryStr.substr(startPos, endPos - startPos);
+                }
+                else
+                {
+                    paramValue = queryStr.substr(startPos);
+                }
+                
+                // Unescape the value
+                if (!paramValue.empty())
+                {
+                    return winrt::Windows::Foundation::Uri::UnescapeComponent(paramValue);
+                }
+            }
+            
+            return L"";
         }
 
         // IInternalValueMarshalable
