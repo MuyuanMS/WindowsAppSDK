@@ -82,7 +82,7 @@ public:
 
     bool IsValid()
     {
-        return (m_name.size() != 0);
+        return (m_name.size() != 0) && (m_view != nullptr);
     }
 
 protected:
