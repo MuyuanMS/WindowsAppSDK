@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation and Contributors.
+﻿// Copyright (c) Microsoft Corporation and Contributors.
 // Licensed under the MIT License.
 #pragma once
 
@@ -47,47 +47,90 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
 
         static winrt::Windows::Foundation::IInspectable Deserialize(winrt::Windows::Foundation::Uri const& uri)
         {
-            auto parsedQuery = uri.QueryParsed();
-
-            // By design parsed query should have a size of 3 (ContractId, Verb, File), in which case result from QueryParsed() can be used directly.
-            // However, it may have a size of 0 when uri contains unicode characters, or more than 3 when file path contains "&", which requires manual parsing with string functions.
-            if (parsedQuery.Size() == 3)
+            winrt::hstring verb;
+            winrt::hstring file;
+            
+            // Try to get parameters using standard QueryParsed
+            try
             {
-                auto verb = parsedQuery.GetFirstValueByName(L"Verb");
-                auto file = parsedQuery.GetFirstValueByName(L"File");
+                auto query = uri.QueryParsed();
+                verb = query.GetFirstValueByName(L"Verb");
+            }
+            catch (...)
+            {
+                // Fall back to manual extraction if QueryParsed fails
+                verb = ExtractQueryParameterValue(uri.Query(), L"Verb");
+            }
+            
+            // For File parameter, always use direct extraction since:
+            // 1. It can contain Unicode characters which QueryParsed() might not handle correctly
+            // 2. It can contain & characters in the filename
+            // 3. It's always the last parameter in the URI (by convention in the Serialize method)
+            file = ExtractFileParameterValue(uri.Query());
+            
+            if (!verb.empty() && !file.empty())
+            {
                 return make<FileActivatedEventArgs>(verb, file);
             }
-
-            const std::wstring query = uri.Query().c_str();
-            auto queryLength = query.length();
-
-            auto verbBegin = query.find(L"&Verb=");
-            if (verbBegin == std::wstring::npos)
+            
+            throw winrt::hresult_invalid_argument(L"Missing required parameters");
+        }
+        
+        // Helper method to extract the File parameter value, assuming File is the last parameter
+        static winrt::hstring ExtractFileParameterValue(winrt::hstring const& query)
+        {
+            std::wstring queryStr = query.c_str();
+            const std::wstring fileParamPrefix = L"File=";
+            
+            // Find File parameter
+            auto filePos = queryStr.find(fileParamPrefix);
+            if (filePos != std::wstring::npos)
             {
-                throw winrt::hresult_invalid_argument(L"Query of encoded file protocol should contain 'Verb'");
+                // Extract everything after "File=" to the end
+                auto fileValue = queryStr.substr(filePos + fileParamPrefix.length());
+                
+                // Unescape to handle Unicode characters
+                if (!fileValue.empty())
+                {
+                    return winrt::Windows::Foundation::Uri::UnescapeComponent(fileValue);
+                }
             }
-            verbBegin += 6; // Length of "&Verb="
-
-            auto verbEnd = query.find(L"&", verbBegin);
-            if (verbEnd == std::wstring::npos)
+            
+            return L"";
+        }
+        
+        // Helper method to extract a generic query parameter value 
+        static winrt::hstring ExtractQueryParameterValue(winrt::hstring const& query, std::wstring const& paramName)
+        {
+            std::wstring queryStr = query.c_str();
+            std::wstring paramPrefix = paramName + L"=";
+            
+            // Find parameter
+            auto paramPos = queryStr.find(paramPrefix);
+            if (paramPos != std::wstring::npos)
             {
-                verbEnd = queryLength;
+                // Extract from start position to next & or end
+                auto startPos = paramPos + paramPrefix.length();
+                auto endPos = queryStr.find(L'&', startPos);
+                
+                std::wstring paramValue;
+                if (endPos != std::wstring::npos)
+                {
+                    paramValue = queryStr.substr(startPos, endPos - startPos);
+                }
+                else
+                {
+                    paramValue = queryStr.substr(startPos);
+                }
+                
+                // Unescape the value
+                if (!paramValue.empty())
+                {
+                    return winrt::Windows::Foundation::Uri::UnescapeComponent(paramValue);
+                }
             }
-
-            auto fileBegin = query.find(L"&File=");
-            if (fileBegin == std::wstring::npos)
-            {
-                throw winrt::hresult_invalid_argument(L"Query of encoded file protocol should contain 'File'");
-            }
-            fileBegin += 6; // Length of "&File="
-
-            // File path may contain '&' character, so fileEnd can only be assumed to be the end of the query or start of Verb
-            auto fileEnd = verbBegin > fileBegin ? verbBegin : queryLength;
-
-            auto verb = winrt::to_hstring(query.substr(verbBegin, verbEnd - verbBegin).c_str());
-            auto file = winrt::to_hstring(query.substr(fileBegin, fileEnd - fileBegin).c_str());
-
-            return make<FileActivatedEventArgs>(verb, file);
+            
+            return L"";
         }
 
         // IInternalValueMarshalable

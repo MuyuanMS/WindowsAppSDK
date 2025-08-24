@@ -37,27 +37,52 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
 
     inline std::tuple<ExtendedActivationKind, winrt::Windows::Foundation::IInspectable> DecodeActivatedEventArgs(winrt::Windows::Foundation::Uri const& uri)
     {
-        for (auto const& pair : uri.QueryParsed())
+        // First try to use QueryParsed() which works for regular characters
+        try
         {
-            if (CompareStringOrdinal(pair.Name().c_str(), -1, c_contractIdKeyName, -1, TRUE) == CSTR_EQUAL)
+            for (auto const& pair : uri.QueryParsed())
             {
-                auto contractId = pair.Value().c_str();
+                if (CompareStringOrdinal(pair.Name().c_str(), -1, c_contractIdKeyName, -1, TRUE) == CSTR_EQUAL)
+                {
+                    auto contractId = pair.Value().c_str();
+                    for (const auto& extension : c_extensionMap)
+                    {
+                        if (CompareStringOrdinal(contractId, -1, extension.contractId, -1, TRUE) == CSTR_EQUAL)
+                        {
+                            return { extension.kind, extension.factory(uri) };
+                        }
+                    }
+                }
+            }
+        }
+        catch (...)
+        {
+            // If QueryParsed() fails (likely due to Unicode characters), fall back to manual extraction
+            auto contractId = FileActivatedEventArgs::ExtractQueryParameterValue(uri.Query(), c_contractIdKeyName);
+            if (!contractId.empty())
+            {
                 for (const auto& extension : c_extensionMap)
                 {
-                    if (CompareStringOrdinal(contractId, -1, extension.contractId, -1, TRUE) == CSTR_EQUAL)
+                    if (CompareStringOrdinal(contractId.c_str(), -1, extension.contractId, -1, TRUE) == CSTR_EQUAL)
                     {
                         return { extension.kind, extension.factory(uri) };
                     }
                 }
             }
-        }
-
-        // QueryParsed() function would return empty when it's a file contract with unicode characters in file path
-        // Thus following additional check for file contract is needed
-        auto fileContractUri = GenerateEncodedLaunchUri(L"App", c_fileContractId);
-        if (CompareStringOrdinal(uri.AbsoluteUri().c_str(), static_cast<int>(fileContractUri.length()), fileContractUri.c_str(), -1, TRUE) == CSTR_EQUAL)
-        {
-            return { ExtendedActivationKind::File, FileActivatedEventArgs::Deserialize(uri) };
+            
+            // Check for File activation as a fallback (since it's a common case with Unicode characters)
+            auto fileParam = FileActivatedEventArgs::ExtractFileParameterValue(uri.Query());
+            auto verbParam = FileActivatedEventArgs::ExtractQueryParameterValue(uri.Query(), L"Verb");
+            if (!fileParam.empty() && !verbParam.empty())
+            {
+                for (const auto& extension : c_extensionMap)
+                {
+                    if (CompareStringOrdinal(extension.contractId, -1, c_fileContractId, -1, TRUE) == CSTR_EQUAL)
+                    {
+                        return { extension.kind, extension.factory(uri) };
+                    }
+                }
+            }
         }
 
         return { ExtendedActivationKind::Protocol, nullptr };
